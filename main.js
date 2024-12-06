@@ -26,6 +26,7 @@ import {
 } from './utils/game.js';
 import readline from 'readline';
 
+// Function for asking user input
 const askQuestion = (query) => {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -37,12 +38,14 @@ const askQuestion = (query) => {
   }));
 };
 
+// Main function
 async function main() {
   logger(banner, 'debug');
+
   const tokens = loadTokensFromFile('tokens.txt');
   const proxies = loadProxiesFromFile('proxy.txt');
   let type = await askQuestion(
-    'Choose Your fishing type\n1. short_range  \n2. mid_range \n3. long_range \nEnter your choice (1 2 3): '
+    'Choose Your fishing type\n1. short_range\n2. mid_range\n3. long_range\nEnter your choice (1 2 3): '
   );
 
   if (proxies.length === 0) {
@@ -54,109 +57,95 @@ async function main() {
 
   while (true) {
     let counter = 1;
+
     for (const token of tokens) {
-      const {
-        proxy,
-        nextIndex
-      } = getNextProxy(proxies, proxyIndex);
+      const { proxy, nextIndex } = getNextProxy(proxies, proxyIndex);
       proxyIndex = nextIndex;
 
       logger(`Using proxy: ${proxy}`);
-      let profile;
+
       try {
-        profile = await getUserInfo(token, proxy);
+        // Fetch user profile
+        let profile = await getUserInfo(token, proxy);
         logger(`Profile response: ${JSON.stringify(profile)}`, 'debug');
-      } catch (error) {
-        logger(`Error fetching user info: ${JSON.stringify(error)}`, 'error');
-        counter++;
-        continue;
-      }
 
-      if (!profile) {
-        logger(`Failed to fetch profile for Account #${counter}:`, 'error');
-        counter++;
-        continue;
-      }
+        if (!profile) {
+          logger(`Failed to fetch profile for Account #${counter}`, 'error');
+          counter++;
+          continue;
+        }
 
-      const isCompleteTutorial = profile.isCompleteTutorial;
-      const isClaimedDailyReward = profile.isClaimedDailyReward;
-      const userId = profile.id;
+        const { isCompleteTutorial, isClaimedDailyReward, gold, energy, fishPoint, id: userId } = profile;
 
-      logger(
-        `Account #${counter} | EXP Points: ${profile.fishPoint} | Gold: ${profile.gold} | Energy: ${profile.energy}`,
-        'debug'
-      );
+        logger(`Account #${counter} | EXP Points: ${fishPoint} | Gold: ${gold} | Energy: ${energy}`, 'debug');
 
-      try {
         if (!isCompleteTutorial) {
+          // Complete tutorial if not done
           const tutorialResponse = await completeTutorial(token, proxy, userId);
           logger(`Complete tutorial response: ${JSON.stringify(tutorialResponse)}`, 'debug');
         } else if (!isClaimedDailyReward) {
-          logger('Daily Signin...');
+          // Claim daily reward
+          logger('Claiming daily reward...');
           const rewardResponse = await claimDailyReward(token, proxy);
-          logger(`Claim daily reward response: ${JSON.stringify(rewardResponse)}`, 'debug');
+          logger(`Daily reward response: ${JSON.stringify(rewardResponse)}`, 'debug');
+
+          // Claim social quests
           const quests = await getSocialQuests(token, proxy);
           logger(`Social quests response: ${JSON.stringify(quests)}`, 'debug');
-          const ids = quests
-            .filter((item) => item.status === 'UnClaimed')
-            .map((item) => item.id);
-          for (const id of ids) {
-            if (
-              id === '670f3bb8193d51c460247600' ||
-              id === '670f3c40193d51c460247623' ||
-              id === '670f3c76193d51c46024762c'
-            ) {
+
+          const unclaimedQuestIds = quests
+            .filter((quest) => quest.status === 'UnClaimed')
+            .map((quest) => quest.id);
+
+          for (const questId of unclaimedQuestIds) {
+            if (['670f3bb8193d51c460247600', '670f3c40193d51c460247623', '670f3c76193d51c46024762c'].includes(questId)) {
               continue;
             }
-            logger(`Account #${counter} | Claim Quests ID:`, 'info', id);
-            const questResponse = await verifyQuest(token, id, proxy);
-            logger(`Verify quest response: ${JSON.stringify(questResponse)}`, 'debug');
+            logger(`Claiming quest ID: ${questId}`, 'info');
+            const questResponse = await verifyQuest(token, questId, proxy);
+            logger(`Quest response: ${JSON.stringify(questResponse)}`, 'debug');
           }
-        } else if (profile.gold > 1500) {
+        } else if (gold > 1500) {
+          // Buy and use fishing item
           const itemId = '66b1f692aaa0b594511c2db2';
           const buyResponse = await buyFishing(token, proxy, itemId, userId);
-          logger(`Buy fishing item response: ${JSON.stringify(buyResponse)}`, 'debug');
+          logger(`Buy item response: ${JSON.stringify(buyResponse)}`, 'debug');
+
           if (buyResponse) {
-            logger(`Account #${counter} | Buy and Use Exp Scroll for user ${userId}`);
+            logger(`Using item for user ${userId}`);
             const useResponse = await useItem(token, proxy, itemId, userId);
             logger(`Use item response: ${JSON.stringify(useResponse)}`, 'debug');
           }
         }
 
-        if (type === '1' && profile.energy > 0) {
+        // Fishing logic
+        if (type === '1' && energy > 0) {
           const fishingResponse = await fishing(token, type, proxy);
           logger(`Fishing response: ${JSON.stringify(fishingResponse)}`, 'debug');
-        } else if (type === '2' && profile.energy > 1) {
+        } else if (type === '2' && energy > 1) {
           const fishingResponse = await fishing(token, type, proxy);
           logger(`Fishing response: ${JSON.stringify(fishingResponse)}`, 'debug');
-        } else if (type === '3' && profile.energy > 2) {
+        } else if (type === '3' && energy > 2) {
           const fishingResponse = await fishing(token, type, proxy);
           logger(`Fishing response: ${JSON.stringify(fishingResponse)}`, 'debug');
         } else {
-          logger(
-            `Account #${counter} | Not Enough Energy to start fishing...`,
-            'warn'
-          );
-          logger(`Account #${counter} | Checking inventory...`);
+          logger(`Not enough energy to start fishing. Checking inventory...`, 'warn');
           const inventory = await getInventory(token, proxy);
           logger(`Inventory response: ${JSON.stringify(inventory)}`, 'debug');
         }
       } catch (error) {
-        logger(
-          `Account #${counter} | Game failed: ${JSON.stringify(error)}`,
-          'error'
-        );
+        logger(`Error in account #${counter}: ${JSON.stringify(error)}`, 'error');
       }
 
       counter++;
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    logger('Waiting 1 minute before Fishing again...');
+    logger('Waiting 1 minute before fishing again...');
     await new Promise((resolve) => setTimeout(resolve, 60000));
   }
 }
 
 main().catch((error) => {
-  logger(`Error in main loop: ${JSON.stringify(error)}`, 'error');
+  logger(`Main loop error: ${JSON.stringify(error)}`, 'error');
 });
